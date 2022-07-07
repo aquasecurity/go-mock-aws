@@ -40,3 +40,10 @@ func WithInitTimeout(timeout int) StackOption {
 		s.initTimeout = timeout
 	}
 }
+
+func WithReuseExisting() StackOption {
+	return func(s *Stack) {
+		s.reuseExisting = true
+		s.containerName = "localstack"
+	}
+}

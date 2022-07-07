@@ -21,6 +21,8 @@ type Stack struct {
 	sync.RWMutex
 	initScriptDir       string
 	started             bool
+	reuseExisting       bool
+	containerName       string
 	ctx                 context.Context
 	cli                 *client.Client
 	volumeMounts        map[string]string
@@ -68,6 +70,10 @@ func (s *Stack) Start(forceRestart bool, opts ...StackOption) error {
 func (s *Stack) Stop() error {
 	s.Lock()
 	defer s.Unlock()
+	return s.stop()
+}
+
+func (s *Stack) stop() error {
 	if !s.started || s.containerID == "" {
 		return nil
 	}
@@ -92,8 +98,18 @@ func (s *Stack) EndpointURL() string {
 	return ""
 }
 
-func (s *Stack) start() error {
+func (s *Stack) start(forceRestart bool) error {
+	if s.instanceAlreadyRunning() {
+		if !forceRestart {
+			return nil
+		}
+		if err := s.stop(); err != nil {
+			return err
+		}
+	}
+
 	s.pm[nat.Port(FixedPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: ""}}
+
 	resp, err := s.cli.ContainerCreate(s.ctx,
 		&container.Config{
 			Image:        "localstack/localstack:latest",
@@ -104,8 +120,11 @@ func (s *Stack) start() error {
 			PortBindings: s.pm,
 			Mounts:       stack.getVolumeMounts(),
 			AutoRemove:   true,
-		}, nil, nil, "")
+		}, nil, nil, s.containerName)
 	if err != nil {
+		if s.reuseExisting && strings.Contains(err.Error(), fmt.Sprintf("The container name \"%s\" is already in use by container", s.containerName)) {
+			return nil
+		}
 		return fmt.Errorf("localstack: could not create container: %w", err)
 	}
 
@@ -120,7 +139,7 @@ func (s *Stack) start() error {
 		if s.initTimeout > 0 && time.Since(start) > time.Duration(s.initTimeout)*time.Second {
 			_ = fmt.Errorf("localstack: init timeout exceeded (%d seconds)", s.initTimeout)
 		}
-		if s.isInitComplete() {
+		if s.initComplete() {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -130,7 +149,7 @@ func (s *Stack) start() error {
 	return nil
 }
 
-func (s *Stack) isInitComplete() bool {
+func (s *Stack) initComplete() bool {
 	reader, err := s.cli.ContainerLogs(s.ctx, s.containerID, types.ContainerLogsOptions{
 		ShowStdout: true,
 		Follow:     false,
@@ -163,4 +182,18 @@ func (s *Stack) getVolumeMounts() []mount.Mount {
 		})
 	}
 	return mounts
+}
+
+func (s *Stack) instanceAlreadyRunning() bool {
+	containers, err := s.cli.ContainerList(s.ctx, types.ContainerListOptions{})
+	if err != nil {
+		return false
+	}
+	for _, container := range containers {
+		if container.Image == "localstack/localstack:latest" {
+			s.containerID = container.ID
+			return true
+		}
+	}
+	return false
 }
