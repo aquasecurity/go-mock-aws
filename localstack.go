@@ -15,6 +15,8 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
+const FixedPort = "4566/tcp"
+
 type Stack struct {
 	sync.RWMutex
 	initScriptDir       string
@@ -25,10 +27,12 @@ type Stack struct {
 	initCompleteLogLine string
 	containerID         string
 	initTimeout         int
+	pm                  nat.PortMap
 }
 
 var stack = &Stack{
 	ctx: context.Background(),
+	pm:  nat.PortMap{},
 }
 
 // Get returns the current stack instance
@@ -77,10 +81,19 @@ func (s *Stack) Stop() error {
 	return nil
 }
 
-func (s *Stack) start() error {
-	pm := nat.PortMap{}
-	pm[nat.Port("4566/tcp")] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: ""}}
+func (s *Stack) EndpointURL() string {
 
+	if s.containerID != "" {
+		if port, ok := s.pm[nat.Port(FixedPort)]; ok {
+			return "http://" + port[0].HostIP + ":" + port[0].HostPort
+		}
+
+	}
+	return ""
+}
+
+func (s *Stack) start() error {
+	s.pm[nat.Port(FixedPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: ""}}
 	resp, err := s.cli.ContainerCreate(s.ctx,
 		&container.Config{
 			Image:        "localstack/localstack:latest",
@@ -88,7 +101,7 @@ func (s *Stack) start() error {
 			AttachStdout: true,
 			AttachStderr: true,
 		}, &container.HostConfig{
-			PortBindings: pm,
+			PortBindings: s.pm,
 			Mounts:       stack.getVolumeMounts(),
 			AutoRemove:   true,
 		}, nil, nil, "")
@@ -97,6 +110,10 @@ func (s *Stack) start() error {
 	}
 
 	s.containerID = resp.ID
+
+	if err := s.cli.ContainerStart(s.ctx, s.containerID, types.ContainerStartOptions{}); err != nil {
+		return err
+	}
 
 	start := time.Now()
 	for {
