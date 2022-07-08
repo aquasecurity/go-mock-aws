@@ -47,3 +47,9 @@ func WithReuseExisting() StackOption {
 		s.containerName = "localstack"
 	}
 }
+
+func WithNotInitWait() StackOption {
+	return func(s *Stack) {
+		s.waitForInit = false
+	}
+}

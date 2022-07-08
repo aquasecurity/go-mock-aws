@@ -13,6 +13,11 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 const FixedPort = "4566/tcp"
@@ -30,11 +35,13 @@ type Stack struct {
 	containerID         string
 	initTimeout         int
 	pm                  nat.PortMap
+	waitForInit         bool
 }
 
 var stack = &Stack{
-	ctx: context.Background(),
-	pm:  nat.PortMap{},
+	ctx:         context.Background(),
+	pm:          nat.PortMap{},
+	waitForInit: true,
 }
 
 // Get returns the current stack instance
@@ -63,7 +70,7 @@ func (s *Stack) Start(forceRestart bool, opts ...StackOption) error {
 	}
 
 	s.cli = cli
-	return s.start()
+	return s.start(forceRestart)
 }
 
 // Stop stops the stack instance
@@ -135,15 +142,25 @@ func (s *Stack) start(forceRestart bool) error {
 	}
 
 	start := time.Now()
-	for {
-		if s.initTimeout > 0 && time.Since(start) > time.Duration(s.initTimeout)*time.Second {
-			_ = fmt.Errorf("localstack: init timeout exceeded (%d seconds)", s.initTimeout)
+	if s.waitForInit {
+		for {
+			if s.initTimeout > 0 && time.Since(start) > time.Duration(s.initTimeout)*time.Second {
+				_ = fmt.Errorf("localstack: init timeout exceeded (%d seconds)", s.initTimeout)
+			}
+			if s.initComplete() {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
-		if s.initComplete() {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
 	}
+
+	cont, err := s.cli.ContainerInspect(s.ctx, s.containerID)
+	if err != nil {
+		return err
+	}
+	ports := cont.NetworkSettings.Ports
+	bindings := ports[nat.Port(FixedPort)]
+	s.pm[nat.Port(FixedPort)] = []nat.PortBinding{{HostIP: "localhost", HostPort: bindings[0].HostPort}}
 
 	s.started = true
 	return nil
@@ -166,7 +183,7 @@ func (s *Stack) initComplete() bool {
 
 	logLineCheck := s.initCompleteLogLine
 	if logLineCheck == "" {
-		logLineCheck = "localstack: finished waiting"
+		logLineCheck = "INFO success: infra entered RUNNING state"
 	}
 
 	return strings.Contains(string(logContent), logLineCheck)
@@ -196,4 +213,37 @@ func (s *Stack) instanceAlreadyRunning() bool {
 		}
 	}
 	return false
+}
+
+func (s *Stack) isFunctional() bool {
+	if !s.started {
+		return false
+	}
+
+	cfg, err := s.createTestConfig()
+	if err != nil {
+		return false
+	}
+	api := sqs.NewFromConfig(cfg)
+	queueUrl, err := api.CreateQueue(s.ctx, &sqs.CreateQueueInput{QueueName: aws.String("test-queue")})
+	if err != nil || queueUrl.QueueUrl == nil {
+		return false
+	}
+	_, _ = api.DeleteQueue(s.ctx, &sqs.DeleteQueueInput{QueueUrl: queueUrl.QueueUrl})
+	return true
+}
+
+func (s *Stack) createTestConfig() (aws.Config, error) {
+	return config.LoadDefaultConfig(s.ctx,
+		config.WithRegion("us-east-1"),
+		config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...interface{}) (aws.Endpoint, error) {
+			return aws.Endpoint{
+				PartitionID:       "aws",
+				URL:               s.EndpointURL(),
+				SigningRegion:     "us-east-1",
+				HostnameImmutable: true,
+			}, nil
+		})),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "dummy")),
+	)
 }
