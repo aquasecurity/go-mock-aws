@@ -53,7 +53,7 @@ func (s *Stack) Start(forceRestart bool, opts ...StackOption) error {
 	defer s.Unlock()
 	if s.started {
 		if !forceRestart {
-			return fmt.Errorf("localstack: already started and restart not requested")
+			return nil
 		}
 		if err := s.Stop(); err != nil {
 			return err
