@@ -106,13 +106,14 @@ func (s *Stack) EndpointURL() string {
 }
 
 func (s *Stack) start(forceRestart bool) error {
-	if s.instanceAlreadyRunning() {
-		if !forceRestart {
-			return nil
-		}
-		if err := s.stop(); err != nil {
-			return err
-		}
+
+	if s.ctx != nil {
+		go func() {
+			<-s.ctx.Done()
+			if err := s.stop(); err != nil {
+				panic(err)
+			}
+		}()
 	}
 
 	s.pm[nat.Port(FixedPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: ""}}
