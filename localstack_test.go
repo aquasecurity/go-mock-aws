@@ -15,7 +15,7 @@ func Test_TestLocalStack(t *testing.T) {
 
 	ensureNoLocalStack(t)
 
-	stack := Get()
+	stack := New()
 	assert.NotNil(t, stack)
 
 	err := stack.Start(false)

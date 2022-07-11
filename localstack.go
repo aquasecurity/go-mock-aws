@@ -38,15 +38,13 @@ type Stack struct {
 	waitForInit         bool
 }
 
-var stack = &Stack{
-	ctx:         context.Background(),
-	pm:          nat.PortMap{},
-	waitForInit: true,
-}
-
-// Get returns the current stack instance
-func Get() *Stack {
-	return stack
+// New returns the current stack instance
+func New() *Stack {
+	return &Stack{
+		ctx:         context.Background(),
+		pm:          nat.PortMap{},
+		waitForInit: true,
+	}
 }
 
 // Start starts the stack instance with options, forces a restart if required
@@ -70,7 +68,7 @@ func (s *Stack) Start(forceRestart bool, opts ...StackOption) error {
 	}
 
 	s.cli = cli
-	return s.start(forceRestart)
+	return s.start()
 }
 
 // Stop stops the stack instance
@@ -105,7 +103,7 @@ func (s *Stack) EndpointURL() string {
 	return ""
 }
 
-func (s *Stack) start(forceRestart bool) error {
+func (s *Stack) start() error {
 
 	if s.ctx != nil {
 		go func() {
@@ -126,7 +124,7 @@ func (s *Stack) start(forceRestart bool) error {
 			AttachStderr: true,
 		}, &container.HostConfig{
 			PortBindings: s.pm,
-			Mounts:       stack.getVolumeMounts(),
+			Mounts:       s.getVolumeMounts(),
 			AutoRemove:   true,
 		}, nil, nil, s.containerName)
 	if err != nil {
@@ -207,9 +205,9 @@ func (s *Stack) instanceAlreadyRunning() bool {
 	if err != nil {
 		return false
 	}
-	for _, container := range containers {
-		if container.Image == "localstack/localstack:latest" {
-			s.containerID = container.ID
+	for _, cont := range containers {
+		if cont.Image == "localstack/localstack:latest" {
+			s.containerID = cont.ID
 			return true
 		}
 	}
