@@ -41,7 +41,7 @@ type Stack struct {
 // New returns the current stack instance
 func New() *Stack {
 	return &Stack{
-		ctx:         context.Background(),
+		ctx:         context.TODO(),
 		pm:          nat.PortMap{},
 		waitForInit: true,
 	}
@@ -105,14 +105,13 @@ func (s *Stack) EndpointURL() string {
 
 func (s *Stack) start() error {
 
-	if s.ctx != nil {
-		go func() {
-			<-s.ctx.Done()
-			if err := s.stop(); err != nil {
-				panic(err)
-			}
-		}()
-	}
+	go func() {
+		<-s.ctx.Done()
+		fmt.Printf("Stopping Container: %s\n", s.containerID)
+		if err := s.stop(); err != nil {
+			panic(err)
+		}
+	}()
 
 	s.pm[nat.Port(FixedPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: ""}}
 
