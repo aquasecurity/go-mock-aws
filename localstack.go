@@ -3,6 +3,7 @@ package localstack
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"strings"
 	"sync"
@@ -115,6 +116,10 @@ func (s *Stack) start() error {
 
 	s.pm[nat.Port(FixedPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: ""}}
 
+	if err := s.ensureImage("localstack/localstack:latest"); err != nil {
+		return err
+	}
+
 	resp, err := s.cli.ContainerCreate(s.ctx,
 		&container.Config{
 			Image:        "localstack/localstack:latest",
@@ -162,6 +167,29 @@ func (s *Stack) start() error {
 
 	s.started = true
 	return nil
+}
+
+func (s *Stack) ensureImage(imageName string) error {
+
+	images, err := s.cli.ImageList(s.ctx, types.ImageListOptions{All: true})
+	if err != nil {
+		return err
+	}
+
+	for _, image := range images {
+		if image.ID == imageName {
+			return nil
+		}
+	}
+
+	resp, err := s.cli.ImagePull(s.ctx, imageName, types.ImagePullOptions{})
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = resp.Close() }()
+	_, err = io.Copy(ioutil.Discard, resp)
+	return err
 }
 
 func (s *Stack) initComplete() bool {
