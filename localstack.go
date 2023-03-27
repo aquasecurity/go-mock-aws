@@ -22,6 +22,7 @@ import (
 )
 
 const FixedPort = "4566/tcp"
+const LocalStackImage = "localstack/localstack:1.4"
 
 type Stack struct {
 	sync.RWMutex
@@ -116,13 +117,13 @@ func (s *Stack) start() error {
 
 	s.pm[nat.Port(FixedPort)] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: ""}}
 
-	if err := s.ensureImage("localstack/localstack:latest"); err != nil {
+	if err := s.ensureImage(LocalStackImage); err != nil {
 		return err
 	}
 
 	resp, err := s.cli.ContainerCreate(s.ctx,
 		&container.Config{
-			Image:        "localstack/localstack:latest",
+			Image:        LocalStackImage,
 			Tty:          true,
 			AttachStdout: true,
 			AttachStderr: true,
@@ -233,7 +234,7 @@ func (s *Stack) instanceAlreadyRunning() bool {
 		return false
 	}
 	for _, cont := range containers {
-		if cont.Image == "localstack/localstack:latest" {
+		if cont.Image == LocalStackImage {
 			s.containerID = cont.ID
 			return true
 		}
