@@ -24,7 +24,8 @@ func WithInitScriptMount(initScriptDirPath string, completeLogLine string) (Stac
 		if i.volumeMounts == nil {
 			i.volumeMounts = make(map[string]string)
 		}
-		i.volumeMounts["/docker-entrypoint-initaws.d"] = initScriptDirPathAbs
+		targetMount := "/etc/localstack/init/ready.d/" + filepath.Base(initScriptDirPath)
+		i.volumeMounts[targetMount] = initScriptDirPathAbs
 		i.initCompleteLogLine = completeLogLine
 	}, err
 }
