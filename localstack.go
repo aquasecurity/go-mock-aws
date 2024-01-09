@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strings"
 	"sync"
 	"time"
@@ -21,12 +20,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
-const FixedPort = "4566/tcp"
-const LocalStackImage = "localstack/localstack:1.4"
+const Port = "4566"
+const FixedPort = Port + "/tcp"
+const LocalStackImage = "localstack/localstack:3.0"
 
 type Stack struct {
 	sync.RWMutex
-	initScriptDir       string
 	started             bool
 	reuseExisting       bool
 	containerName       string
@@ -151,7 +150,7 @@ func (s *Stack) start() error {
 	if s.waitForInit {
 		for {
 			if s.initTimeout > 0 && time.Since(start) > time.Duration(s.initTimeout)*time.Second {
-				_ = fmt.Errorf("localstack: init timeout exceeded (%d seconds)", s.initTimeout)
+				return fmt.Errorf("localstack: init timeout exceeded (%d seconds)", s.initTimeout)
 			}
 			if s.initComplete() {
 				break
@@ -191,7 +190,7 @@ func (s *Stack) ensureImage(imageName string) error {
 	}
 
 	defer func() { _ = resp.Close() }()
-	_, err = io.Copy(ioutil.Discard, resp)
+	_, err = io.Copy(io.Discard, resp)
 	return err
 }
 
@@ -205,14 +204,14 @@ func (s *Stack) initComplete() bool {
 	}
 	defer func() { _ = reader.Close() }()
 
-	logContent, err := ioutil.ReadAll(reader)
+	logContent, err := io.ReadAll(reader)
 	if err != nil {
 		return false
 	}
 
 	logLineCheck := s.initCompleteLogLine
 	if logLineCheck == "" {
-		logLineCheck = "INFO success: infra entered RUNNING state"
+		logLineCheck = "Ready."
 	}
 
 	return strings.Contains(string(logContent), logLineCheck)
@@ -222,26 +221,18 @@ func (s *Stack) getVolumeMounts() []mount.Mount {
 	var mounts []mount.Mount
 	for mountPath, localPath := range s.volumeMounts {
 		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: localPath,
-			Target: mountPath,
+			Type:     mount.TypeBind,
+			Source:   localPath,
+			Target:   mountPath,
+			ReadOnly: true,
 		})
 	}
+	mounts = append(mounts, mount.Mount{
+		Type:   mount.TypeBind,
+		Source: "/var/run/docker.sock",
+		Target: "/var/run/docker.sock",
+	})
 	return mounts
-}
-
-func (s *Stack) instanceAlreadyRunning() bool {
-	containers, err := s.cli.ContainerList(s.ctx, types.ContainerListOptions{})
-	if err != nil {
-		return false
-	}
-	for _, cont := range containers {
-		if cont.Image == LocalStackImage {
-			s.containerID = cont.ID
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Stack) isFunctional() bool {
