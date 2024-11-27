@@ -9,6 +9,7 @@ import (
 	"time"
 
 	containertypes "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	imagetypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
@@ -173,14 +174,22 @@ func (s *Stack) start() error {
 
 func (s *Stack) ensureImage(imageName string) error {
 
-	images, err := s.cli.ImageList(s.ctx, imagetypes.ListOptions{All: true})
+	f := filters.NewArgs()
+	f.Add("reference", imageName)
+
+	images, err := s.cli.ImageList(s.ctx, imagetypes.ListOptions{
+		Filters: f,
+	})
+
 	if err != nil {
 		return err
 	}
 
 	for _, image := range images {
-		if image.ID == imageName {
-			return nil
+		for _, tag := range image.RepoTags {
+			if tag == imageName {
+				return nil
+			}
 		}
 	}
 
